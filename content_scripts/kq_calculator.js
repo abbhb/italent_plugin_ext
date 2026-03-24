@@ -267,6 +267,16 @@
     return parseFloat(hours).toFixed(2);
   }
 
+  /** 转义 HTML 特殊字符，防止将页面文本插入 innerHTML 时产生 XSS */
+  function esc(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   // ─────────────────────────────────────────────
   // DOM 访问 —— 基于列标题动态定位列位置
   // ─────────────────────────────────────────────
@@ -464,22 +474,21 @@
   function buildDetailRows(rows) {
     return rows
       .map((r, i) => {
-        const wdClass = r.weekend ? `${PREFIX}-weekend` : '';
         const stClass = r.status === '正常' ? `${PREFIX}-normal` : r.status === '--' ? `${PREFIX}-zero` : `${PREFIX}-abnormal`;
         const otClass = r.overtime > 0 ? `${PREFIX}-ot` : `${PREFIX}-zero`;
-        const wh = r.workHours > 0 ? fmtH(r.workHours) : '<span class="' + PREFIX + '-zero">0.00</span>';
+        const wh = r.workHours > 0 ? fmtH(r.workHours) : `<span class="${PREFIX}-zero">0.00</span>`;
         const ot = r.overtime > 0 ? `<span class="${otClass}">${fmtH(r.overtime)}</span>` : `<span class="${PREFIX}-zero">0.00</span>`;
         const dateLabel = r.weekend
-          ? `<span class="${PREFIX}-weekend">${r.date}</span>`
-          : r.date;
+          ? `<span class="${PREFIX}-weekend">${esc(r.date)}</span>`
+          : esc(r.date);
         const absence = r.absenceMinutes > 0
-          ? formatMinutes(r.absenceMinutes)
+          ? esc(formatMinutes(r.absenceMinutes))
           : `<span class="${PREFIX}-zero">0</span>`;
         const checkin = r.firstCheckin && r.firstCheckin !== '--'
-          ? r.firstCheckin.replace(/^\d{4}-\d{2}-\d{2}\s+/, '')  // 只显示时间部分
+          ? esc(r.firstCheckin.replace(/^\d{4}-\d{2}-\d{2}\s+/, ''))  // 只显示时间部分
           : `<span class="${PREFIX}-zero">--</span>`;
         const checkout = r.lastCheckin && r.lastCheckin !== '--'
-          ? r.lastCheckin.replace(/^\d{4}-\d{2}-\d{2}\s+/, '')
+          ? esc(r.lastCheckin.replace(/^\d{4}-\d{2}-\d{2}\s+/, ''))
           : `<span class="${PREFIX}-zero">--</span>`;
 
         return `
@@ -488,7 +497,7 @@
             <td style="text-align:left">${dateLabel}</td>
             <td>${checkin}</td>
             <td>${checkout}</td>
-            <td><span class="${stClass}">${r.status || '--'}</span></td>
+            <td><span class="${stClass}">${esc(r.status || '--')}</span></td>
             <td>${wh}</td>
             <td>${ot}</td>
             <td>${absence}</td>
