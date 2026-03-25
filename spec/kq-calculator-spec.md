@@ -62,7 +62,11 @@
 
 **已勾选行判断**：
 ```javascript
-row.querySelector('.platform-checkbox__input[type="checkbox"]').checked === true
+const checkbox = row.querySelector('.platform-checkbox__input[type="checkbox"]');
+checkbox.checked === true ||
+checkbox.getAttribute('aria-checked') === 'true' ||
+row.getAttribute('aria-selected') === 'true' ||
+checkbox.closest('[class*="checked"], [class*="selected"]') !== null
 ```
 
 ### 2.4 滚动列——列定义（left 偏移量）

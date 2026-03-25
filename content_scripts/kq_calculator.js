@@ -354,12 +354,34 @@
     );
   }
 
+  function hasSelectedClass(element) {
+    if (!element || typeof element.className !== 'string') return false;
+
+    return element.className
+      .split(/\s+/)
+      .some((className) => (
+        /(?:^|[-_])(checked|selected)$/.test(className) ||
+        /(?:^|[-_])is-(checked|selected)$/.test(className)
+      ));
+  }
+
   /** 判断某行的复选框是否被勾选 */
   function isRowChecked(row) {
     const checkbox = row.querySelector(
       '.platform-checkbox__input[type="checkbox"]'
     );
-    return checkbox ? checkbox.checked : false;
+    if (!checkbox) return false;
+    if (checkbox.checked || checkbox.matches(':checked')) return true;
+    if (checkbox.getAttribute('aria-checked') === 'true') return true;
+    if (row.getAttribute('aria-selected') === 'true') return true;
+
+    for (let element = checkbox; element && element !== row.parentElement; element = element.parentElement) {
+      if (element.getAttribute('aria-checked') === 'true') return true;
+      if (hasSelectedClass(element)) return true;
+      if (element === row) break;
+    }
+
+    return false;
   }
 
   // ─────────────────────────────────────────────
