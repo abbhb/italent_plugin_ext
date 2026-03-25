@@ -2,7 +2,7 @@
 
 > **版本**：1.0.0  
 > **更新**：2026-03-24  
-> **适用页面**：`https://*.italent.cn/` 下的「我的出勤 / 我的考勤」页面（title: `我的出勤` 或 `我的考勤`），仅在该页面注入按钮
+> **适用页面**：`https://www.italent.cn/portal/convoy/attendance` 下当前 URL 参数满足 `metaObjName=Attendance.AttendanceStatistics` 且 `viewName=Attendance.AttendanceDataRecordNavView` 的「我的出勤 / 我的考勤」页面，仅在该页面注入按钮
 
 ---
 

@@ -661,8 +661,18 @@
   // ─────────────────────────────────────────────
 
   function isMyAttendancePage() {
-    const title = (document.title || '').trim();
-    return title === '我的出勤' || title === '我的考勤';
+    const currentUrl = new URL(window.location.href);
+    const hash = currentUrl.hash || '';
+    const hashQueryIndex = hash.indexOf('?');
+    const hashParams = new URLSearchParams(hashQueryIndex >= 0 ? hash.slice(hashQueryIndex + 1) : '');
+    const getCurrentParam = (name) => currentUrl.searchParams.get(name) || hashParams.get(name) || '';
+    const metaObjName = getCurrentParam('metaObjName');
+    const viewName = getCurrentParam('viewName');
+
+    return (
+      metaObjName === 'Attendance.AttendanceStatistics' &&
+      viewName === 'Attendance.AttendanceDataRecordNavView'
+    );
   }
 
   function tryInject() {
