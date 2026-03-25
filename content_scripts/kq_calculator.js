@@ -659,7 +659,14 @@
   // 初始化 —— 监听 .button-list 出现（SPA 场景）
   // ─────────────────────────────────────────────
 
+  function isMyAttendancePage() {
+    const title = (document.title || '').trim();
+    return title === '我的出勤' || title === '我的考勤';
+  }
+
   function tryInject() {
+    if (!isMyAttendancePage()) return;
+
     const buttonList = document.querySelector('.button-list.clearfix');
     if (buttonList) {
       injectCalcButton(buttonList);
