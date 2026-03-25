@@ -1,0 +1,154 @@
+name: Build and Release Extension
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ASSET_PREFIX: italent-kq-plugin
+
+jobs:
+  build:
+    name: Build ${{ matrix.browser }} on ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, edge]
+        platform:
+          - name: windows
+            runner: windows-latest
+          - name: macos
+            runner: macos-latest
+          - name: linux
+            runner: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read extension version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python - <<'PY'
+          import json
+          import sys
+
+          try:
+              with open("manifest.json", encoding="utf-8") as manifest_file:
+                  manifest = json.load(manifest_file)
+              version = manifest["version"]
+          except FileNotFoundError:
+              print("manifest.json not found in repository root.", file=sys.stderr)
+              raise SystemExit(1)
+          except json.JSONDecodeError as exc:
+              print(f"manifest.json is not valid JSON: {exc}", file=sys.stderr)
+              raise SystemExit(1)
+          except KeyError:
+              print("manifest.json is missing the required version field.", file=sys.stderr)
+              raise SystemExit(1)
+
+          print(version)
+          PY
+          )"
+          echo "value=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate tag version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${TAG_VERSION}" != "${{ steps.version.outputs.value }}" ]]; then
+            echo "Tag version ${TAG_VERSION} does not match manifest version ${{ steps.version.outputs.value }}" >&2
+            exit 1
+          fi
+
+      - name: Build release asset
+        id: build
+        shell: bash
+        run: |
+          ASSET_PATH="$(bash ./scripts/build-release-asset.sh "${{ steps.version.outputs.value }}" "${{ matrix.browser }}" "${{ matrix.platform.name }}" "./dist")"
+          ASSET_NAME="$(basename "${ASSET_PATH}")"
+          echo "path=${ASSET_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "name=${ASSET_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.build.outputs.path }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+          NOTES_FILE="release-notes.md"
+          python - "${NOTES_FILE}" "${VERSION}" "${TAG}" "${REPO_URL}" "${ASSET_PREFIX}" <<'PY'
+          import pathlib
+          import sys
+
+          notes_path = pathlib.Path(sys.argv[1])
+          version = sys.argv[2]
+          tag = sys.argv[3]
+          repo_url = sys.argv[4]
+          asset_prefix = sys.argv[5]
+
+          notes = f"""## 发布说明
+
+- 版本：{version}
+- 标签：{tag}
+- 安装方式：下载对应浏览器与操作系统的 ZIP 包后，在浏览器扩展管理页通过“加载已解压的扩展程序”导入解压后的目录即可使用。
+
+### Chrome 扩展下载
+
+- Windows: [{asset_prefix}-{version}-chrome-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-windows.zip)
+- macOS: [{asset_prefix}-{version}-chrome-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-macos.zip)
+- Linux: [{asset_prefix}-{version}-chrome-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-linux.zip)
+
+### Edge 扩展下载
+
+- Windows: [{asset_prefix}-{version}-edge-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-windows.zip)
+- macOS: [{asset_prefix}-{version}-edge-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-macos.zip)
+- Linux: [{asset_prefix}-{version}-edge-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-linux.zip)
+"""
+
+          notes_path.write_text(notes, encoding="utf-8")
+          PY
+
+          {
+            echo 'body<<EOF'
+            cat "${NOTES_FILE}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.notes.outputs.body }}
+          files: dist/*.zip
+          fail_on_unmatched_files: true
