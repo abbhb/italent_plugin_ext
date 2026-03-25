@@ -34,30 +34,46 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Read extension version
         id: version
         shell: bash
         run: |
           VERSION="$(python - <<'PY'
-          import json
+          import re
+          import subprocess
           import sys
 
           try:
-              with open("manifest.json", encoding="utf-8") as manifest_file:
-                  manifest = json.load(manifest_file)
-              version = manifest["version"]
-          except FileNotFoundError:
-              print("manifest.json not found in repository root.", file=sys.stderr)
-              raise SystemExit(1)
-          except json.JSONDecodeError as exc:
-              print(f"manifest.json is not valid JSON: {exc}", file=sys.stderr)
-              raise SystemExit(1)
-          except KeyError:
-              print("manifest.json is missing the required version field.", file=sys.stderr)
+              result = subprocess.run(
+                  ["git", "tag", "--list", "--sort=-version:refname"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+          except subprocess.CalledProcessError as exc:
+              print(exc.stderr, file=sys.stderr)
+              raise SystemExit(exc.returncode)
+
+          latest_tag = None
+          for tag in result.stdout.splitlines():
+              if re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag):
+                  latest_tag = tag
+                  break
+
+          if latest_tag is None:
+              print("0.1.0")
+              raise SystemExit(0)
+
+          match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", latest_tag)
+          if match is None:
+              print(f"Unsupported tag format: {latest_tag}", file=sys.stderr)
               raise SystemExit(1)
 
-          print(version)
+          major, minor, _patch = map(int, match.groups())
+          print(f"{major}.{minor + 1}.0")
           PY
           )"
           echo "value=${VERSION}" >> "${GITHUB_OUTPUT}"
@@ -68,7 +84,7 @@ jobs:
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [[ "${TAG_VERSION}" != "${{ steps.version.outputs.value }}" ]]; then
-            echo "Tag version ${TAG_VERSION} does not match manifest version ${{ steps.version.outputs.value }}" >&2
+            echo "Tag version ${TAG_VERSION} does not match computed version ${{ steps.version.outputs.value }}" >&2
             exit 1
           fi
 
