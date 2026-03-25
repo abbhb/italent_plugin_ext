@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  ASSET_PREFIX: italent-kq-plugin
+
 jobs:
   build:
     name: Build ${{ matrix.browser }} on ${{ matrix.platform.name }}
@@ -32,7 +35,27 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION="$(python -c 'import json; print(json.load(open("manifest.json", encoding="utf-8"))["version"])')"
+          VERSION="$(python - <<'PY'
+          import json
+          import sys
+
+          try:
+              with open("manifest.json", encoding="utf-8") as manifest_file:
+                  manifest = json.load(manifest_file)
+              version = manifest["version"]
+          except FileNotFoundError:
+              print("manifest.json not found in repository root.", file=sys.stderr)
+              raise SystemExit(1)
+          except json.JSONDecodeError as exc:
+              print(f"manifest.json is not valid JSON: {exc}", file=sys.stderr)
+              raise SystemExit(1)
+          except KeyError:
+              print("manifest.json is missing the required version field.", file=sys.stderr)
+              raise SystemExit(1)
+
+          print(version)
+          PY
+          )"
           echo "value=${VERSION}" >> "${GITHUB_OUTPUT}"
 
       - name: Validate tag version
@@ -85,26 +108,37 @@ jobs:
           VERSION="${TAG#v}"
           REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
           NOTES_FILE="release-notes.md"
+          python - "${NOTES_FILE}" "${VERSION}" "${TAG}" "${REPO_URL}" "${ASSET_PREFIX}" <<'PY'
+          import pathlib
+          import sys
 
-          cat > "${NOTES_FILE}" <<EOF
-          ## 发布说明
+          notes_path = pathlib.Path(sys.argv[1])
+          version = sys.argv[2]
+          tag = sys.argv[3]
+          repo_url = sys.argv[4]
+          asset_prefix = sys.argv[5]
 
-          - 版本：${VERSION}
-          - 标签：\`${TAG}\`
-          - 安装方式：下载对应浏览器与操作系统的 ZIP 包后，在浏览器扩展管理页通过“加载已解压的扩展程序”导入解压后的目录即可使用。
+          notes = f"""## 发布说明
 
-          ### Chrome 扩展下载
+- 版本：{version}
+- 标签：{tag}
+- 安装方式：下载对应浏览器与操作系统的 ZIP 包后，在浏览器扩展管理页通过“加载已解压的扩展程序”导入解压后的目录即可使用。
 
-          - Windows: [italent_plugin_ext-${VERSION}-chrome-windows.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-chrome-windows.zip)
-          - macOS: [italent_plugin_ext-${VERSION}-chrome-macos.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-chrome-macos.zip)
-          - Linux: [italent_plugin_ext-${VERSION}-chrome-linux.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-chrome-linux.zip)
+### Chrome 扩展下载
 
-          ### Edge 扩展下载
+- Windows: [{asset_prefix}-{version}-chrome-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-windows.zip)
+- macOS: [{asset_prefix}-{version}-chrome-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-macos.zip)
+- Linux: [{asset_prefix}-{version}-chrome-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-linux.zip)
 
-          - Windows: [italent_plugin_ext-${VERSION}-edge-windows.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-edge-windows.zip)
-          - macOS: [italent_plugin_ext-${VERSION}-edge-macos.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-edge-macos.zip)
-          - Linux: [italent_plugin_ext-${VERSION}-edge-linux.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-edge-linux.zip)
-          EOF
+### Edge 扩展下载
+
+- Windows: [{asset_prefix}-{version}-edge-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-windows.zip)
+- macOS: [{asset_prefix}-{version}-edge-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-macos.zip)
+- Linux: [{asset_prefix}-{version}-edge-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-linux.zip)
+"""
+
+          notes_path.write_text(notes, encoding="utf-8")
+          PY
 
           {
             echo 'body<<EOF'

@@ -49,7 +49,7 @@
 3. 解压 ZIP 包
 4. 在扩展管理页点击「**加载已解压的扩展程序**」，选择解压后的目录
 
-> 发布说明中会自动附带各操作系统对应的下载链接，下载后可直接导入 Chrome 或 Edge 使用。
+> 推送 `v*` 标签发布 Release 时，发布说明会自动附带各操作系统对应的下载链接，下载后可直接导入 Chrome 或 Edge 使用。
 
 ### 方式三：本地打包后安装
 
@@ -57,7 +57,7 @@
 bash ./scripts/build-release-asset.sh 1.0.0 chrome linux ./dist
 ```
 
-然后解压 `./dist/italent_plugin_ext-1.0.0-chrome-linux.zip`，在扩展管理页加载解压后的目录即可。
+然后解压 `./dist/italent-kq-plugin-1.0.0-chrome-linux.zip`，在扩展管理页加载解压后的目录即可。
 
 ---
 

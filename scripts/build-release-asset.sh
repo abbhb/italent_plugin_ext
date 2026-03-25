@@ -11,6 +11,7 @@ VERSION="$1"
 BROWSER="$2"
 OS_NAME="$3"
 OUTPUT_DIR="$4"
+ASSET_PREFIX="${ASSET_PREFIX:-italent-kq-plugin}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -34,7 +35,7 @@ case "${OS_NAME}" in
   linux|macos|windows)
     ;;
   *)
-    echo "Unsupported os: ${OS_NAME}" >&2
+    echo "Unsupported OS: ${OS_NAME}" >&2
     exit 1
     ;;
 esac
@@ -46,7 +47,7 @@ cp -R "${REPO_DIR}/content_scripts" "${STAGE_DIR}/content_scripts"
 cp -R "${REPO_DIR}/popup" "${STAGE_DIR}/popup"
 cp -R "${REPO_DIR}/icons" "${STAGE_DIR}/icons"
 
-ASSET_NAME="italent_plugin_ext-${VERSION}-${BROWSER}-${OS_NAME}.zip"
+ASSET_NAME="${ASSET_PREFIX}-${VERSION}-${BROWSER}-${OS_NAME}.zip"
 ASSET_PATH="$(cd "${OUTPUT_DIR}" && pwd)/${ASSET_NAME}"
 
 python - "${STAGE_DIR}" "${ASSET_PATH}" <<'PY'
