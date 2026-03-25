@@ -40,13 +40,24 @@
 
 5. 插件图标出现在工具栏，安装完成 ✅
 
-### 方式二：打包后安装
+### 方式二：下载 Release 构件安装
+
+1. 打开仓库的 **Releases** 页面
+2. 根据浏览器与操作系统下载对应 ZIP：
+   - Chrome：Windows / macOS / Linux
+   - Edge：Windows / macOS / Linux
+3. 解压 ZIP 包
+4. 在扩展管理页点击「**加载已解压的扩展程序**」，选择解压后的目录
+
+> 发布说明中会自动附带各操作系统对应的下载链接，下载后可直接导入 Chrome 或 Edge 使用。
+
+### 方式三：本地打包后安装
 
 ```bash
-# 将仓库根目录打包为 .zip（排除 .git 和 my_kq.html）
-zip -r italent_kq_plugin.zip . --exclude "*.git*" --exclude "my_kq.html"
+bash ./scripts/build-release-asset.sh 1.0.0 chrome linux ./dist
 ```
-然后在扩展管理页拖入 `.crx` 或解压安装。
+
+然后解压 `./dist/italent_plugin_ext-1.0.0-chrome-linux.zip`，在扩展管理页加载解压后的目录即可。
 
 ---
 
@@ -151,6 +162,15 @@ italent_plugin_ext/
 1. 修改 `content_scripts/kq_calculator.js`
 2. 在浏览器扩展管理页点击「**刷新**」（或使用 `Ctrl+R`）
 3. 刷新 iTalent 考勤页面
+
+### GitHub Actions 自动发布
+
+- 工作流文件：`.github/workflows/build-release.yml`
+- `push` / `pull_request` 时会构建 Chrome 与 Edge 的发布 ZIP
+- 推送 `v*` 标签时，会自动创建 GitHub Release 并上传以下构件：
+  - Chrome：Windows / macOS / Linux
+  - Edge：Windows / macOS / Linux
+- Release 说明会自动生成，并包含每个构件的下载链接
 
 ### Spec 文档
 

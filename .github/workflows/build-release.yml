@@ -1,0 +1,120 @@
+name: Build and Release Extension
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.browser }} on ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, edge]
+        platform:
+          - name: windows
+            runner: windows-latest
+          - name: macos
+            runner: macos-latest
+          - name: linux
+            runner: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read extension version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python -c 'import json; print(json.load(open("manifest.json", encoding="utf-8"))["version"])')"
+          echo "value=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate tag version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${TAG_VERSION}" != "${{ steps.version.outputs.value }}" ]]; then
+            echo "Tag version ${TAG_VERSION} does not match manifest version ${{ steps.version.outputs.value }}" >&2
+            exit 1
+          fi
+
+      - name: Build release asset
+        id: build
+        shell: bash
+        run: |
+          ASSET_PATH="$(bash ./scripts/build-release-asset.sh "${{ steps.version.outputs.value }}" "${{ matrix.browser }}" "${{ matrix.platform.name }}" "./dist")"
+          ASSET_NAME="$(basename "${ASSET_PATH}")"
+          echo "path=${ASSET_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "name=${ASSET_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.build.outputs.path }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+          NOTES_FILE="release-notes.md"
+
+          cat > "${NOTES_FILE}" <<EOF
+          ## 发布说明
+
+          - 版本：${VERSION}
+          - 标签：\`${TAG}\`
+          - 安装方式：下载对应浏览器与操作系统的 ZIP 包后，在浏览器扩展管理页通过“加载已解压的扩展程序”导入解压后的目录即可使用。
+
+          ### Chrome 扩展下载
+
+          - Windows: [italent_plugin_ext-${VERSION}-chrome-windows.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-chrome-windows.zip)
+          - macOS: [italent_plugin_ext-${VERSION}-chrome-macos.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-chrome-macos.zip)
+          - Linux: [italent_plugin_ext-${VERSION}-chrome-linux.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-chrome-linux.zip)
+
+          ### Edge 扩展下载
+
+          - Windows: [italent_plugin_ext-${VERSION}-edge-windows.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-edge-windows.zip)
+          - macOS: [italent_plugin_ext-${VERSION}-edge-macos.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-edge-macos.zip)
+          - Linux: [italent_plugin_ext-${VERSION}-edge-linux.zip](${REPO_URL}/releases/download/${TAG}/italent_plugin_ext-${VERSION}-edge-linux.zip)
+          EOF
+
+          {
+            echo 'body<<EOF'
+            cat "${NOTES_FILE}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.notes.outputs.body }}
+          files: dist/*.zip
+          fail_on_unmatched_files: true
