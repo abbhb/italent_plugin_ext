@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "iTalent 考勤工时计算器",
+  "version": "1.0.0",
+  "description": "为北森 iTalent 考勤页面增强功能：自动计算选中记录的总工时、加班工时、缺勤时长等统计信息。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "iTalent 考勤工时计算器"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.italent.cn/*",
+        "http://*.italent.cn/*"
+      ],
+      "js": ["content_scripts/kq_calculator.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [],
+  "host_permissions": [
+    "https://*.italent.cn/*",
+    "http://*.italent.cn/*"
+  ]
+}
