@@ -47,6 +47,22 @@ cp -R "${REPO_DIR}/content_scripts" "${STAGE_DIR}/content_scripts"
 cp -R "${REPO_DIR}/popup" "${STAGE_DIR}/popup"
 cp -R "${REPO_DIR}/icons" "${STAGE_DIR}/icons"
 
+python - "${STAGE_DIR}/manifest.json" "${VERSION}" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+version = sys.argv[2]
+
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+manifest["version"] = version
+manifest_path.write_text(
+    json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+    encoding="utf-8",
+)
+PY
+
 ASSET_NAME="${ASSET_PREFIX}-${VERSION}-${BROWSER}-${OS_NAME}.zip"
 ASSET_PATH="$(cd "${OUTPUT_DIR}" && pwd)/${ASSET_NAME}"
 

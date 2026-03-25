@@ -49,15 +49,24 @@
 3. 解压 ZIP 包
 4. 在扩展管理页点击「**加载已解压的扩展程序**」，选择解压后的目录
 
-> 推送 `v*` 标签发布 Release 时，发布说明会自动附带各操作系统对应的下载链接，下载后可直接导入 Chrome 或 Edge 使用。
+> 推送到 `main` 后，GitHub Actions 会自动读取最新 `vX.Y.Z` 标签并生成下一版 `X.(Y+1).0`，发布说明会自动附带各操作系统对应的下载链接，下载后可直接导入 Chrome 或 Edge 使用。
 
 ### 方式三：本地打包后安装
 
 ```bash
-bash ./scripts/build-release-asset.sh 1.0.0 chrome linux ./dist
+LATEST_TAG="$(git tag --list --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+
+if [[ -z "${LATEST_TAG}" ]]; then
+  VERSION="0.1.0"
+else
+  IFS='.' read -r MAJOR MINOR _PATCH <<< "${LATEST_TAG#v}"
+  VERSION="${MAJOR}.$((MINOR + 1)).0"
+fi
+
+bash ./scripts/build-release-asset.sh "${VERSION}" chrome linux ./dist
 ```
 
-然后解压 `./dist/italent-kq-plugin-1.0.0-chrome-linux.zip`，在扩展管理页加载解压后的目录即可。
+然后解压 `./dist/italent-kq-plugin-${VERSION}-chrome-linux.zip`，在扩展管理页加载解压后的目录即可。
 
 ---
 
@@ -166,8 +175,10 @@ italent_plugin_ext/
 ### GitHub Actions 自动发布
 
 - 工作流文件：`.github/workflows/build-release.yml`
-- `push` / `pull_request` 时会构建 Chrome 与 Edge 的发布 ZIP
-- 推送 `v*` 标签时，会自动创建 GitHub Release 并上传以下构件：
+- 推送到 `main` 或手动触发时，会构建 Chrome 与 Edge 的发布 ZIP
+- 构建版本不再依赖 `manifest.json`，而是读取最新 `vX.Y.Z` 标签并自动递增中间版本号（`X.Y.Z → X.(Y+1).0`）
+- 如果仓库里还没有版本标签，则首次构建使用 `0.1.0`
+- 构建时会同步重写打包产物中的 `manifest.json` 版本号，并自动创建 GitHub Release / 标签后上传以下构件：
   - Chrome：Windows / macOS / Linux
   - Edge：Windows / macOS / Linux
 - Release 说明会自动生成，并包含每个构件的下载链接
