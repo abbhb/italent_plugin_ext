@@ -355,6 +355,29 @@
     );
   }
 
+  function getRenderedRowSignature() {
+    return Array.from(getDataRows())
+      .map((row) => row.getAttribute('aria-rowindex') || '')
+      .join(',');
+  }
+
+  function getVirtualGrid() {
+    return document.querySelector('.pps-virtual-table[role="grid"][aria-rowcount]');
+  }
+
+  function getRowLogicalIndex(row) {
+    const ariaRowIndex = parseInt(row.getAttribute('aria-rowindex') || '', 10);
+    return Number.isFinite(ariaRowIndex) && ariaRowIndex > 1
+      ? ariaRowIndex - 1
+      : null;
+  }
+
+  function waitForVirtualTableRender(delay = 60) {
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, delay);
+    });
+  }
+
   function hasSelectedClass(element) {
     if (!element || typeof element.className !== 'string') return false;
 
@@ -402,6 +425,129 @@
     return false;
   }
 
+  function extractRowData(row, colPos) {
+    const date = getCellValueByLeft(row, colPos.date);
+    const firstCheckin = getCellValueByLeft(row, colPos.firstCheckin);
+    const lastCheckin = getCellValueByLeft(row, colPos.lastCheckin);
+    const absenceText = getCellValueByLeft(row, colPos.absence);
+    const status = getCellValueByLeft(row, colPos.status);
+    const workHoursText = getCellValueByLeft(row, colPos.workHours);
+    const workHours = parseWorkHours(workHoursText);
+    const weekend = isWeekend(date);
+    const absenceMinutes = parseAbsenceToMinutes(absenceText);
+    // 加班：工作日超出标准工时；周末所有工时均为加班
+    const overtime = weekend
+      ? workHours
+      : Math.max(0, workHours - STANDARD_WORK_HOURS);
+
+    return {
+      date,
+      firstCheckin,
+      lastCheckin,
+      absenceText,
+      absenceMinutes,
+      status,
+      workHours,
+      weekend,
+      overtime,
+    };
+  }
+
+  function collectVisibleSelectedRows(colPos, rowMap) {
+    Array.from(getDataRows()).forEach((row) => {
+      const rowIndex = getRowLogicalIndex(row);
+      if (rowIndex === null || !isRowChecked(row) || rowMap.has(rowIndex)) return;
+      rowMap.set(rowIndex, extractRowData(row, colPos));
+    });
+  }
+
+  async function findVirtualScrollTarget(grid) {
+    const candidates = [
+      grid,
+      grid.querySelector('.fixedDataTableLayout_rowsContainer'),
+      grid.parentElement,
+      grid.closest('.react-datagrid'),
+    ].filter(Boolean);
+    const baseSignature = getRenderedRowSignature();
+
+    for (const candidate of candidates) {
+      const originalTop = candidate.scrollTop;
+      const probeTop = originalTop + Math.max(candidate.clientHeight || 0, 240);
+
+      candidate.scrollTop = probeTop;
+      await waitForVirtualTableRender();
+      const changed = getRenderedRowSignature() !== baseSignature;
+
+      candidate.scrollTop = originalTop;
+      await waitForVirtualTableRender();
+
+      if (changed) return candidate;
+    }
+
+    return null;
+  }
+
+  async function collectSelectedRows(colPos) {
+    const rowMap = new Map();
+    collectVisibleSelectedRows(colPos, rowMap);
+
+    const grid = getVirtualGrid();
+    const totalDataRows = Math.max(
+      parseInt(grid && grid.getAttribute('aria-rowcount'), 10) - 1 || 0,
+      0
+    );
+    if (!grid || totalDataRows <= rowMap.size) {
+      return Array.from(rowMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([, row]) => row);
+    }
+
+    const scrollTarget = await findVirtualScrollTarget(grid);
+    if (!scrollTarget) {
+      return Array.from(rowMap.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([, row]) => row);
+    }
+
+    const originalTop = scrollTarget.scrollTop;
+    scrollTarget.scrollTop = 0;
+    await waitForVirtualTableRender();
+    collectVisibleSelectedRows(colPos, rowMap);
+
+    const maxScrollTop = Math.max(
+      (scrollTarget.scrollHeight || 0) - (scrollTarget.clientHeight || 0),
+      0
+    );
+    const step = Math.max(Math.floor((scrollTarget.clientHeight || 0) * 0.85), 160);
+    let currentTop = 0;
+    let lastSignature = getRenderedRowSignature();
+    let stagnantRounds = 0;
+
+    while (currentTop < maxScrollTop) {
+      currentTop = Math.min(currentTop + step, maxScrollTop);
+      scrollTarget.scrollTop = currentTop;
+      await waitForVirtualTableRender();
+      collectVisibleSelectedRows(colPos, rowMap);
+
+      const currentSignature = getRenderedRowSignature();
+      if (currentSignature === lastSignature) {
+        stagnantRounds += 1;
+      } else {
+        stagnantRounds = 0;
+        lastSignature = currentSignature;
+      }
+
+      if (stagnantRounds >= 2 || rowMap.size >= totalDataRows) break;
+    }
+
+    scrollTarget.scrollTop = originalTop;
+    await waitForVirtualTableRender();
+
+    return Array.from(rowMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([, row]) => row);
+  }
+
   // ─────────────────────────────────────────────
   // 工时统计计算
   // ─────────────────────────────────────────────
@@ -409,42 +555,12 @@
   /**
    * 统计已选行工时，返回统计对象；若无选中行则返回 null
    */
-  function calcStats() {
+  async function calcStats() {
     const colPos = detectColumnPositions();
     if (!colPos || !colPos.workHours) return null;
 
-    const allRows = Array.from(getDataRows());
-    const selectedRows = allRows.filter(isRowChecked);
-    if (selectedRows.length === 0) return null;
-
-    // 提取每行原始数据
-    const rows = selectedRows.map((row) => {
-      const date = getCellValueByLeft(row, colPos.date);
-      const firstCheckin = getCellValueByLeft(row, colPos.firstCheckin);
-      const lastCheckin = getCellValueByLeft(row, colPos.lastCheckin);
-      const absenceText = getCellValueByLeft(row, colPos.absence);
-      const status = getCellValueByLeft(row, colPos.status);
-      const workHoursText = getCellValueByLeft(row, colPos.workHours);
-      const workHours = parseWorkHours(workHoursText);
-      const weekend = isWeekend(date);
-      const absenceMinutes = parseAbsenceToMinutes(absenceText);
-      // 加班：工作日超出标准工时；周末所有工时均为加班
-      const overtime = weekend
-        ? workHours
-        : Math.max(0, workHours - STANDARD_WORK_HOURS);
-
-      return {
-        date,
-        firstCheckin,
-        lastCheckin,
-        absenceText,
-        absenceMinutes,
-        status,
-        workHours,
-        weekend,
-        overtime,
-      };
-    });
+    const rows = await collectSelectedRows(colPos);
+    if (rows.length === 0) return null;
 
     // 汇总
     const totalDays = rows.length;
@@ -630,8 +746,8 @@
   // ─────────────────────────────────────────────
 
   /** 执行计算并展示弹窗 */
-  function onCalcButtonClick() {
-    const stats = calcStats();
+  async function onCalcButtonClick() {
+    const stats = await calcStats();
     if (!stats) {
       showToast('请先勾选要统计的考勤记录（至少一行）');
       return;
