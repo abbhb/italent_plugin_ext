@@ -66,6 +66,9 @@ const checkbox = row.querySelector('.platform-checkbox__input[type="checkbox"]')
 checkbox.checked === true ||
 checkbox.getAttribute('aria-checked') === 'true' ||
 row.getAttribute('aria-selected') === 'true' ||
+// 全选时，选中态体现在 input 的兄弟 span（platform-checkbox__realInput--checked）上
+(checkbox.nextElementSibling && hasSelectedClass(checkbox.nextElementSibling)) ||
+// 祖先元素兜底
 checkbox.closest('[class*="checked"], [class*="selected"]') !== null
 ```
 
