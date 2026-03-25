@@ -111,6 +111,7 @@ jobs:
           python - "${NOTES_FILE}" "${VERSION}" "${TAG}" "${REPO_URL}" "${ASSET_PREFIX}" <<'PY'
           import pathlib
           import sys
+          import textwrap
 
           notes_path = pathlib.Path(sys.argv[1])
           version = sys.argv[2]
@@ -118,24 +119,27 @@ jobs:
           repo_url = sys.argv[4]
           asset_prefix = sys.argv[5]
 
-          notes = f"""## 发布说明
+          notes = textwrap.dedent(
+              f"""\
+              ## 发布说明
 
-- 版本：{version}
-- 标签：{tag}
-- 安装方式：下载对应浏览器与操作系统的 ZIP 包后，在浏览器扩展管理页通过“加载已解压的扩展程序”导入解压后的目录即可使用。
+              - 版本：{version}
+              - 标签：{tag}
+              - 安装方式：下载对应浏览器与操作系统的 ZIP 包后，在浏览器扩展管理页通过“加载已解压的扩展程序”导入解压后的目录即可使用。
 
-### Chrome 扩展下载
+              ### Chrome 扩展下载
 
-- Windows: [{asset_prefix}-{version}-chrome-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-windows.zip)
-- macOS: [{asset_prefix}-{version}-chrome-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-macos.zip)
-- Linux: [{asset_prefix}-{version}-chrome-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-linux.zip)
+              - Windows: [{asset_prefix}-{version}-chrome-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-windows.zip)
+              - macOS: [{asset_prefix}-{version}-chrome-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-macos.zip)
+              - Linux: [{asset_prefix}-{version}-chrome-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-chrome-linux.zip)
 
-### Edge 扩展下载
+              ### Edge 扩展下载
 
-- Windows: [{asset_prefix}-{version}-edge-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-windows.zip)
-- macOS: [{asset_prefix}-{version}-edge-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-macos.zip)
-- Linux: [{asset_prefix}-{version}-edge-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-linux.zip)
-"""
+              - Windows: [{asset_prefix}-{version}-edge-windows.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-windows.zip)
+              - macOS: [{asset_prefix}-{version}-edge-macos.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-macos.zip)
+              - Linux: [{asset_prefix}-{version}-edge-linux.zip]({repo_url}/releases/download/{tag}/{asset_prefix}-{version}-edge-linux.zip)
+              """
+          )
 
           notes_path.write_text(notes, encoding="utf-8")
           PY
