@@ -15,6 +15,16 @@
   // ─────────────────────────────────────────────
   /** 每天标准工时（小时），超出部分计为加班 */
   const STANDARD_WORK_HOURS = 8;
+  /** 虚拟表格滚动后等待一小段时间，让 React 完成当前批次渲染 */
+  const VIRTUAL_TABLE_RENDER_DELAY = 60;
+  /** 每次滚动覆盖约 85% 视口高度，给虚拟列表预留行复用的重叠区 */
+  const VIRTUAL_SCROLL_OVERLAP_RATIO = 0.85;
+  /** 当视口高度较小时，至少滚动这么多像素以确保切换到下一批行 */
+  const MIN_VIRTUAL_SCROLL_STEP = 160;
+  /** 探测滚动容器时，至少尝试向下滚动这么多像素 */
+  const MIN_VIRTUAL_SCROLL_PROBE_DISTANCE = 240;
+  /** 连续多次滚动都没有出现新行时，认为已经到达底部或无法继续遍历 */
+  const MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS = 2;
 
   /** 插件 UI 元素的唯一标识前缀，防止与页面样式冲突 */
   const PREFIX = 'kq-calc';
@@ -372,7 +382,7 @@
       : null;
   }
 
-  function waitForVirtualTableRender(delay = 60) {
+  function waitForVirtualTableRender(delay = VIRTUAL_TABLE_RENDER_DELAY) {
     return new Promise((resolve) => {
       window.setTimeout(resolve, delay);
     });
@@ -472,7 +482,14 @@
 
     for (const candidate of candidates) {
       const originalTop = candidate.scrollTop;
-      const probeTop = originalTop + Math.max(candidate.clientHeight || 0, 240);
+      const probeDistance = Math.max(
+        candidate.clientHeight || 0,
+        MIN_VIRTUAL_SCROLL_PROBE_DISTANCE
+      );
+      const probeTop = Math.min(
+        originalTop + probeDistance,
+        candidate.scrollHeight || Infinity
+      );
 
       candidate.scrollTop = probeTop;
       await waitForVirtualTableRender();
@@ -492,8 +509,9 @@
     collectVisibleSelectedRows(colPos, rowMap);
 
     const grid = getVirtualGrid();
+    const ariaRowCount = parseInt(grid ? grid.getAttribute('aria-rowcount') || '' : '', 10);
     const totalDataRows = Math.max(
-      parseInt(grid && grid.getAttribute('aria-rowcount'), 10) - 1 || 0,
+      Number.isFinite(ariaRowCount) ? ariaRowCount - 1 : 0,
       0
     );
     if (!grid || totalDataRows <= rowMap.size) {
@@ -518,7 +536,10 @@
       (scrollTarget.scrollHeight || 0) - (scrollTarget.clientHeight || 0),
       0
     );
-    const step = Math.max(Math.floor((scrollTarget.clientHeight || 0) * 0.85), 160);
+    const step = Math.max(
+      Math.floor((scrollTarget.clientHeight || 0) * VIRTUAL_SCROLL_OVERLAP_RATIO),
+      MIN_VIRTUAL_SCROLL_STEP
+    );
     let currentTop = 0;
     let lastSignature = getRenderedRowSignature();
     let stagnantRounds = 0;
@@ -537,7 +558,9 @@
         lastSignature = currentSignature;
       }
 
-      if (stagnantRounds >= 2 || rowMap.size >= totalDataRows) break;
+      // rowMap.size >= totalDataRows 主要用于“当前页全部选中”的快速结束场景；
+      // 若仅部分勾选，仍会依赖 stagnation 检测继续遍历到末尾。
+      if (stagnantRounds >= MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS || rowMap.size >= totalDataRows) break;
     }
 
     scrollTarget.scrollTop = originalTop;
