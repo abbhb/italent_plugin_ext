@@ -2,7 +2,7 @@
 
 > **版本**：1.0.0  
 > **更新**：2026-03-24  
-> **适用页面**：`https://*.italent.cn/` 下的「我的出勤」（title: `我的出勤`）
+> **适用页面**：`https://*.italent.cn/` 下的「我的出勤 / 我的考勤」页面（title: `我的出勤` 或 `我的考勤`），仅在该页面注入按钮
 
 ---
 
@@ -62,7 +62,11 @@
 
 **已勾选行判断**：
 ```javascript
-row.querySelector('.platform-checkbox__input[type="checkbox"]').checked === true
+const checkbox = row.querySelector('.platform-checkbox__input[type="checkbox"]');
+checkbox.checked === true ||
+checkbox.getAttribute('aria-checked') === 'true' ||
+row.getAttribute('aria-selected') === 'true' ||
+checkbox.closest('[class*="checked"], [class*="selected"]') !== null
 ```
 
 ### 2.4 滚动列——列定义（left 偏移量）
