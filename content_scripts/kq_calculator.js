@@ -16,7 +16,7 @@
   /** 每天标准工时（小时），超出部分计为加班 */
   const STANDARD_WORK_HOURS = 8;
   /** 虚拟表格滚动后等待一小段时间，让 React 完成当前批次渲染 */
-  const VIRTUAL_TABLE_RENDER_DELAY = 60;
+  const VIRTUAL_TABLE_RENDER_DELAY = 120;
   /** 每次滚动覆盖约 85% 视口高度，给虚拟列表预留行复用的重叠区 */
   const VIRTUAL_SCROLL_OVERLAP_RATIO = 0.85;
   /** 当视口高度较小时，至少滚动这么多像素以确保切换到下一批行 */
@@ -24,7 +24,17 @@
   /** 探测滚动容器时，至少尝试向下滚动这么多像素 */
   const MIN_VIRTUAL_SCROLL_PROBE_DISTANCE = 240;
   /** 连续多次滚动都没有出现新行时，认为已经到达底部或无法继续遍历 */
-  const MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS = 2;
+  const MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS = 6;
+  /** 每次滚动后最多轮询多少次，等待渲染行签名发生变化 */
+  const VIRTUAL_SCROLL_RENDER_MAX_POLLS = 8;
+  /** 车轮滚动回退方案每次派发的 deltaY 像素值 */
+  const VIRTUAL_SCROLL_WHEEL_DELTA = 400;
+  /**
+   * 滚轮回退方案中，滚到顶部时派发的最大向上事件次数。
+   * 600 行 × 约 40px/行 = 24000px；24000 / 400 = 60 次即可到顶，
+   * 取 200 以保留足够余量应对更高行高或更多行数的场景。
+   */
+  const MAX_WHEEL_SCROLL_TO_TOP_ITERATIONS = 200;
 
   /** 插件 UI 元素的唯一标识前缀，防止与页面样式冲突 */
   const PREFIX = 'kq-calc';
@@ -388,6 +398,20 @@
     });
   }
 
+  /**
+   * 在滚动后持续轮询，直到渲染的行签名与 baseSignature 不同，或超过最大等待次数。
+   * 用于确保 FixedDataTable / React 虚拟列表完成了当前批次的重新渲染。
+   * @param {string} baseSignature 滚动前记录的行签名
+   * @returns {Promise<boolean>} true=签名已变化，false=超时仍未变化
+   */
+  async function pollForRowSignatureChange(baseSignature) {
+    for (let i = 0; i < VIRTUAL_SCROLL_RENDER_MAX_POLLS; i++) {
+      await waitForVirtualTableRender();
+      if (getRenderedRowSignature() !== baseSignature) return true;
+    }
+    return false;
+  }
+
   function hasSelectedClass(element) {
     if (!element || typeof element.className !== 'string') return false;
 
@@ -472,12 +496,37 @@
   }
 
   async function findVirtualScrollTarget(grid) {
+    // 通过 CSS overflow 属性搜集可滚动的祖先元素，作为额外候选
+    const overflowCandidates = [];
+    const seen = new Set();
+    let el = grid.parentElement;
+    while (el && el !== document.documentElement) {
+      if (!seen.has(el)) {
+        seen.add(el);
+        try {
+          const oy = window.getComputedStyle(el).overflowY;
+          if ((oy === 'scroll' || oy === 'auto') && el.scrollHeight > el.clientHeight + 1) {
+            // +1 容差：应对浏览器子像素渲染或舍入误差导致的微小差距
+            overflowCandidates.push(el);
+          }
+        } catch (_) { /* ignore cross-origin or detached elements */ }
+      }
+      el = el.parentElement;
+    }
+
+    const candidateSeen = new Set();
     const candidates = [
       grid,
       grid.querySelector('.fixedDataTableLayout_rowsContainer'),
       grid.parentElement,
       grid.closest('.react-datagrid'),
-    ].filter(Boolean);
+      ...overflowCandidates,
+    ].filter((c) => {
+      if (!c || candidateSeen.has(c)) return false;
+      candidateSeen.add(c);
+      return true;
+    });
+
     const baseSignature = getRenderedRowSignature();
 
     for (const candidate of candidates) {
@@ -492,8 +541,7 @@
       );
 
       candidate.scrollTop = probeTop;
-      await waitForVirtualTableRender();
-      const changed = getRenderedRowSignature() !== baseSignature;
+      const changed = await pollForRowSignatureChange(baseSignature);
 
       candidate.scrollTop = originalTop;
       await waitForVirtualTableRender();
@@ -502,6 +550,59 @@
     }
 
     return null;
+  }
+
+  /**
+   * 当无法通过 scrollTop 驱动虚拟列表滚动时，改用 WheelEvent 模拟滚轮事件。
+   * FixedDataTable 内部监听 wheel 事件来更新其虚拟滚动位置。
+   * 本函数从当前位置逐步向下滚动，收集所有选中行后再向上滚回原位（尽力还原）。
+   */
+  async function collectSelectedRowsViaWheelScroll(grid, colPos, rowMap) {
+    const ariaRowCount = parseInt(grid.getAttribute('aria-rowcount') || '', 10);
+    const totalDataRows = Math.max(
+      Number.isFinite(ariaRowCount) ? ariaRowCount - 1 : 0,
+      0
+    );
+
+    // 先尽量滚到顶部（大量负方向 wheel 事件）
+    for (let i = 0; i < MAX_WHEEL_SCROLL_TO_TOP_ITERATIONS; i++) {
+      grid.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: -VIRTUAL_SCROLL_WHEEL_DELTA, deltaMode: 0, bubbles: true, cancelable: true })
+      );
+    }
+    await pollForRowSignatureChange(getRenderedRowSignature());
+    collectVisibleSelectedRows(colPos, rowMap);
+
+    let lastSignature = getRenderedRowSignature();
+    let stagnantRounds = 0;
+    let totalWheelDown = 0;
+
+    while (stagnantRounds < MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS && rowMap.size < totalDataRows) {
+      grid.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: VIRTUAL_SCROLL_WHEEL_DELTA, deltaMode: 0, bubbles: true, cancelable: true })
+      );
+      totalWheelDown += VIRTUAL_SCROLL_WHEEL_DELTA;
+
+      const changed = await pollForRowSignatureChange(lastSignature);
+      const currentSignature = getRenderedRowSignature();
+      collectVisibleSelectedRows(colPos, rowMap);
+
+      if (changed) {
+        stagnantRounds = 0;
+        lastSignature = currentSignature;
+      } else {
+        stagnantRounds += 1;
+      }
+    }
+
+    // 尽力还原到原来的位置
+    const scrollsBack = Math.ceil(totalWheelDown / VIRTUAL_SCROLL_WHEEL_DELTA);
+    for (let i = 0; i < scrollsBack; i++) {
+      grid.dispatchEvent(
+        new WheelEvent('wheel', { deltaY: -VIRTUAL_SCROLL_WHEEL_DELTA, deltaMode: 0, bubbles: true, cancelable: true })
+      );
+    }
+    await waitForVirtualTableRender();
   }
 
   async function collectSelectedRows(colPos) {
@@ -522,6 +623,8 @@
 
     const scrollTarget = await findVirtualScrollTarget(grid);
     if (!scrollTarget) {
+      // scrollTop 驱动方式失效（如 FixedDataTable 内部滚动），改用 WheelEvent 回退方案
+      await collectSelectedRowsViaWheelScroll(grid, colPos, rowMap);
       return Array.from(rowMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([, row]) => row);
@@ -529,7 +632,7 @@
 
     const originalTop = scrollTarget.scrollTop;
     scrollTarget.scrollTop = 0;
-    await waitForVirtualTableRender();
+    await pollForRowSignatureChange(getRenderedRowSignature());
     collectVisibleSelectedRows(colPos, rowMap);
 
     const maxScrollTop = Math.max(
@@ -547,7 +650,7 @@
     while (currentTop < maxScrollTop) {
       currentTop = Math.min(currentTop + step, maxScrollTop);
       scrollTarget.scrollTop = currentTop;
-      await waitForVirtualTableRender();
+      await pollForRowSignatureChange(lastSignature);
       collectVisibleSelectedRows(colPos, rowMap);
 
       const currentSignature = getRenderedRowSignature();
@@ -558,7 +661,7 @@
         lastSignature = currentSignature;
       }
 
-      // rowMap.size >= totalDataRows 主要用于“当前页全部选中”的快速结束场景；
+      // rowMap.size >= totalDataRows 主要用于"当前页全部选中"的快速结束场景；
       // 若仅部分勾选，仍会依赖 stagnation 检测继续遍历到末尾。
       if (stagnantRounds >= MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS || rowMap.size >= totalDataRows) break;
     }
