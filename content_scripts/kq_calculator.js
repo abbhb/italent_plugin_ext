@@ -664,11 +664,10 @@
     const currentUrl = new URL(window.location.href);
     const hash = currentUrl.hash || '';
     const hashQueryIndex = hash.indexOf('?');
-    const hashParams = hashQueryIndex >= 0
-      ? new URLSearchParams(hash.slice(hashQueryIndex + 1))
-      : null;
-    const metaObjName = currentUrl.searchParams.get('metaObjName') || (hashParams && hashParams.get('metaObjName')) || '';
-    const viewName = currentUrl.searchParams.get('viewName') || (hashParams && hashParams.get('viewName')) || '';
+    const hashParams = new URLSearchParams(hashQueryIndex >= 0 ? hash.slice(hashQueryIndex + 1) : '');
+    const getCurrentParam = (name) => currentUrl.searchParams.get(name) || hashParams.get(name) || '';
+    const metaObjName = getCurrentParam('metaObjName');
+    const viewName = getCurrentParam('viewName');
 
     return (
       metaObjName === 'Attendance.AttendanceStatistics' &&
