@@ -18,6 +18,7 @@
 
   /** 插件 UI 元素的唯一标识前缀，防止与页面样式冲突 */
   const PREFIX = 'kq-calc';
+  const SELECTED_STATE_CLASS_PATTERN = /(?:^|__|--)(checked|selected)$/;
 
   // ─────────────────────────────────────────────
   // 样式注入
@@ -360,9 +361,20 @@
     return element.className
       .split(/\s+/)
       .some((className) => (
-        /(?:^|[-_])(checked|selected)$/.test(className) ||
-        /(?:^|[-_])is-(checked|selected)$/.test(className)
+        className === 'checked' ||
+        className === 'selected' ||
+        className === 'is-checked' ||
+        className === 'is-selected' ||
+        SELECTED_STATE_CLASS_PATTERN.test(className)
       ));
+  }
+
+  function isCheckboxElement(element) {
+    return !!(
+      element &&
+      typeof element.className === 'string' &&
+      element.className.includes('checkbox')
+    );
   }
 
   /** 判断某行的复选框是否被勾选 */
@@ -371,14 +383,19 @@
       '.platform-checkbox__input[type="checkbox"]'
     );
     if (!checkbox) return false;
-    if (checkbox.checked || checkbox.matches(':checked')) return true;
+    if (checkbox.checked) return true;
     if (checkbox.getAttribute('aria-checked') === 'true') return true;
     if (row.getAttribute('aria-selected') === 'true') return true;
 
-    for (let element = checkbox; element && element !== row.parentElement; element = element.parentElement) {
-      if (element.getAttribute('aria-checked') === 'true') return true;
+    for (let element = checkbox; element; element = element.parentElement) {
+      if (
+        element.getAttribute('aria-checked') === 'true' &&
+        isCheckboxElement(element)
+      ) {
+        return true;
+      }
       if (hasSelectedClass(element)) return true;
-      if (element === row) break;
+      if (element === row) return false;
     }
 
     return false;
