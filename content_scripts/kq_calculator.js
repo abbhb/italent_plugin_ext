@@ -386,6 +386,7 @@
     if (checkbox.checked) return true;
     if (checkbox.getAttribute('aria-checked') === 'true') return true;
     if (row.getAttribute('aria-selected') === 'true') return true;
+    if (checkbox.nextElementSibling && hasSelectedClass(checkbox.nextElementSibling)) return true;
 
     for (let element = checkbox; element; element = element.parentElement) {
       if (
