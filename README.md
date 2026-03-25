@@ -59,7 +59,7 @@ LATEST_TAG="$(git tag --list --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+
 if [[ -z "${LATEST_TAG}" ]]; then
   VERSION="0.1.0"
 else
-  IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST_TAG#v}"
+  IFS='.' read -r MAJOR MINOR _PATCH <<< "${LATEST_TAG#v}"
   VERSION="${MAJOR}.$((MINOR + 1)).0"
 fi
 

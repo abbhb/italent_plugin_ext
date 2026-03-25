@@ -46,6 +46,8 @@ jobs:
           import subprocess
           import sys
 
+          VERSION_TAG_PATTERN = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+
           try:
               result = subprocess.run(
                   ["git", "tag", "--list", "--sort=-version:refname"],
@@ -59,7 +61,7 @@ jobs:
 
           latest_tag = None
           for tag in result.stdout.splitlines():
-              if re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag):
+              if VERSION_TAG_PATTERN.fullmatch(tag):
                   latest_tag = tag
                   break
 
@@ -67,12 +69,7 @@ jobs:
               print("0.1.0")
               raise SystemExit(0)
 
-          match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", latest_tag)
-          if match is None:
-              print(f"Unsupported tag format: {latest_tag}", file=sys.stderr)
-              raise SystemExit(1)
-
-          major, minor, _patch = map(int, match.groups())
+          major, minor, _patch = map(int, VERSION_TAG_PATTERN.fullmatch(latest_tag).groups())
           print(f"{major}.{minor + 1}.0")
           PY
           )"
