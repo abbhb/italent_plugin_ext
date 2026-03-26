@@ -480,6 +480,23 @@
     return hasClass(checkboxVisual, 'platform-checkbox__realInput--checked');
   }
 
+  function hasSelectedCheckboxCellBackground(row) {
+    if (!row) return false;
+
+    const checkboxCell = row.querySelector(
+      '.fixedDataTableCellLayout_main[role="gridcell"]'
+    );
+    if (!checkboxCell) return false;
+
+    const inlineStyle = checkboxCell.getAttribute('style') || '';
+    if (/background:\s*var\(--skin-fast-table-css-var-TableRowActiveBgColor\)/.test(inlineStyle)) {
+      return true;
+    }
+
+    const backgroundColor = window.getComputedStyle(checkboxCell).backgroundColor;
+    return backgroundColor === 'rgb(242, 248, 255)';
+  }
+
   /** 判断某行的复选框是否被勾选 */
   function isRowChecked(row) {
     const checkbox = row.querySelector(
@@ -487,13 +504,14 @@
     );
     if (!checkbox) return false;
 
-    if (checkbox.checked) return true;
-    if (checkbox.getAttribute('aria-checked') === 'true') return true;
     if (isCheckboxVisuallyChecked(checkbox)) return true;
+    if (hasSelectedCheckboxCellBackground(row)) return true;
     if (hasClass(row, 'public_fixedDataTableRow_checked')) return true;
 
-    // 部分选中场景下，当前行可能只有高亮/焦点态，不能把 aria-selected
-    // 或 selected class 当成真正的复选框勾选态，否则会把未勾选行算进去。
+    // 这里不要相信原生 input.checked / aria-checked。
+    // iTalent 的 checkbox 是自绘组件，真实勾选态以视觉 class、checkbox 单元格背景态
+    // 和行 checked class 为准；
+    // 部分选中时，原生 input 可能仍残留代理状态，导致未勾选行被误算进去。
     return false;
   }
 
@@ -676,6 +694,7 @@
     if (targetSelectedRows <= rowMap.size) {
       return Array.from(rowMap.entries())
         .sort((a, b) => a[0] - b[0])
+        .slice(0, targetSelectedRows)
         .map(([, row]) => row);
     }
 
@@ -685,6 +704,7 @@
       await collectSelectedRowsViaWheelScroll(grid, colPos, rowMap, targetSelectedRows);
       return Array.from(rowMap.entries())
         .sort((a, b) => a[0] - b[0])
+        .slice(0, targetSelectedRows)
         .map(([, row]) => row);
     }
 
@@ -729,6 +749,7 @@
 
     return Array.from(rowMap.entries())
       .sort((a, b) => a[0] - b[0])
+      .slice(0, targetSelectedRows)
       .map(([, row]) => row);
   }
 
