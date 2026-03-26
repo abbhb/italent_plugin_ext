@@ -442,25 +442,31 @@
     );
   }
 
+  function isCheckboxVisuallyChecked(checkbox) {
+    if (!checkbox) return false;
+
+    const checkboxVisual = checkbox.parentElement
+      ? checkbox.parentElement.querySelector('.platform-checkbox__realInput')
+      : null;
+
+    return hasClass(checkboxVisual, 'platform-checkbox__realInput--checked');
+  }
+
   /** 判断某行的复选框是否被勾选 */
   function isRowChecked(row) {
     const checkbox = row.querySelector(
       '.platform-checkbox__input[type="checkbox"]'
     );
     if (!checkbox) return false;
+
     if (checkbox.checked) return true;
     if (checkbox.getAttribute('aria-checked') === 'true') return true;
-    if (row.getAttribute('aria-selected') === 'true') return true;
+    if (isCheckboxVisuallyChecked(checkbox)) return true;
     if (hasClass(row, 'public_fixedDataTableRow_checked')) return true;
-    if (hasClass(row, 'public_fixedDataTableRow_selected')) return true;
 
-    const checkboxVisual = checkbox.parentElement
-      ? checkbox.parentElement.querySelector('.platform-checkbox__realInput')
-      : null;
-    if (hasClass(checkboxVisual, 'platform-checkbox__realInput--checked')) return true;
-
-    const checkboxWrapper = checkbox.closest('[aria-checked="true"]');
-    return !!checkboxWrapper && row.contains(checkboxWrapper);
+    // 部分选中场景下，当前行可能只有高亮/焦点态，不能把 aria-selected
+    // 或 selected class 当成真正的复选框勾选态，否则会把未勾选行算进去。
+    return false;
   }
 
   function waitForNextPaint() {

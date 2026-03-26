@@ -65,12 +65,14 @@
 const checkbox = row.querySelector('.platform-checkbox__input[type="checkbox"]');
 checkbox.checked === true ||
 checkbox.getAttribute('aria-checked') === 'true' ||
-row.getAttribute('aria-selected') === 'true' ||
-// 全选时，选中态体现在 input 的兄弟 span（platform-checkbox__realInput--checked）上
+// 全选/部分选中时，可靠信号体现在复选框视觉态和行 checked class 上
 (checkbox.nextElementSibling && hasSelectedClass(checkbox.nextElementSibling)) ||
-// 祖先元素兜底
-checkbox.closest('[class*="checked"], [class*="selected"]') !== null
+row.classList.contains('public_fixedDataTableRow_checked')
 ```
+
+说明：
+部分选中时，表格会给当前焦点行附加高亮态，这不等同于复选框已勾选。
+因此不能使用 row.getAttribute('aria-selected') 或 selected class 作为勾选依据。
 
 ### 2.4 滚动列——列定义（left 偏移量）
 
