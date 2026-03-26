@@ -434,7 +434,7 @@
     return false;
   }
 
-  function hasClassName(element, className) {
+  function hasClass(element, className) {
     return !!(
       element &&
       element.classList &&
@@ -451,13 +451,13 @@
     if (checkbox.checked) return true;
     if (checkbox.getAttribute('aria-checked') === 'true') return true;
     if (row.getAttribute('aria-selected') === 'true') return true;
-    if (hasClassName(row, 'public_fixedDataTableRow_checked')) return true;
-    if (hasClassName(row, 'public_fixedDataTableRow_selected')) return true;
+    if (hasClass(row, 'public_fixedDataTableRow_checked')) return true;
+    if (hasClass(row, 'public_fixedDataTableRow_selected')) return true;
 
     const checkboxVisual = checkbox.parentElement
       ? checkbox.parentElement.querySelector('.platform-checkbox__realInput')
       : null;
-    if (hasClassName(checkboxVisual, 'platform-checkbox__realInput--checked')) return true;
+    if (hasClass(checkboxVisual, 'platform-checkbox__realInput--checked')) return true;
 
     const checkboxWrapper = checkbox.closest('[aria-checked="true"]');
     return !!checkboxWrapper && row.contains(checkboxWrapper);
