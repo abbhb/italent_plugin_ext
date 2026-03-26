@@ -73,6 +73,8 @@ row.classList.contains('public_fixedDataTableRow_checked')
 说明：
 部分选中时，表格会给当前焦点行附加高亮态，这不等同于复选框已勾选。
 因此不能使用 row.getAttribute('aria-selected') 或 selected class 作为勾选依据。
+另外这是虚拟表格，DOM 中会残留 display:none 的缓存行；统计时只能遍历当前目标 grid 内真正渲染出来的行，
+并结合分页底部“已选中 N 条”作为收集目标数量，不能把隐藏缓存行直接计入结果。
 
 ### 2.4 滚动列——列定义（left 偏移量）
 

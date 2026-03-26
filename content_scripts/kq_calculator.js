@@ -390,21 +390,49 @@
     return '';
   }
 
-  /** 返回所有数据行（排除表头 aria-rowindex="1"） */
-  function getDataRows() {
-    return document.querySelectorAll(
-      '[role="row"]:not([aria-rowindex="1"])'
+  /** 返回目标虚拟表格内的数据行（排除表头 aria-rowindex="1"） */
+  function getDataRows(grid = getVirtualGrid()) {
+    if (!grid) return [];
+    return grid.querySelectorAll(
+      '.public_fixedDataTable_bodyRow[role="row"]:not([aria-rowindex="1"])'
     );
   }
 
-  function getRenderedRowSignature() {
-    return Array.from(getDataRows())
+  function isRowRendered(row, grid = getVirtualGrid()) {
+    if (!row || !grid || !grid.contains(row)) return false;
+
+    const wrapper = row.closest('.fixedDataTableRowLayout_rowWrapper') || row;
+    const style = window.getComputedStyle(wrapper);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    if (wrapper.getClientRects().length === 0) return false;
+
+    const rect = wrapper.getBoundingClientRect();
+    const gridRect = grid.getBoundingClientRect();
+    if (rect.height <= 0 || gridRect.height <= 0) return false;
+
+    return rect.bottom > gridRect.top && rect.top < gridRect.bottom;
+  }
+
+  function getRenderedRowSignature(grid = getVirtualGrid()) {
+    return Array.from(getDataRows(grid))
+      .filter((row) => isRowRendered(row, grid))
       .map((row) => row.getAttribute('aria-rowindex') || '')
       .join(',');
   }
 
   function getVirtualGrid() {
     return document.querySelector('.pps-virtual-table[role="grid"][aria-rowcount]');
+  }
+
+  function getSelectedRowCount() {
+    const totalText = document.querySelector('.pagingfooter .total');
+    if (!totalText) return null;
+
+    const match = (totalText.textContent || '').match(/已选中\s*(\d+)\s*条/);
+    if (!match) return null;
+
+    const count = parseInt(match[1], 10);
+    return Number.isFinite(count) && count >= 0 ? count : null;
   }
 
   function getRowLogicalIndex(row) {
@@ -505,8 +533,9 @@
     };
   }
 
-  function collectVisibleSelectedRows(colPos, rowMap) {
-    Array.from(getDataRows()).forEach((row) => {
+  function collectVisibleSelectedRows(grid, colPos, rowMap) {
+    Array.from(getDataRows(grid)).forEach((row) => {
+      if (!isRowRendered(row, grid)) return;
       const rowIndex = getRowLogicalIndex(row);
       if (rowIndex === null || !isRowChecked(row) || rowMap.has(rowIndex)) return;
       rowMap.set(rowIndex, extractRowData(row, colPos));
@@ -575,12 +604,7 @@
    * FixedDataTable 内部监听 wheel 事件来更新其虚拟滚动位置。
    * 本函数从当前位置逐步向下滚动，收集所有选中行后再向上滚回原位（尽力还原）。
    */
-  async function collectSelectedRowsViaWheelScroll(grid, colPos, rowMap) {
-    const ariaRowCount = parseInt(grid.getAttribute('aria-rowcount') || '', 10);
-    const totalDataRows = Math.max(
-      Number.isFinite(ariaRowCount) ? ariaRowCount - 1 : 0,
-      0
-    );
+  async function collectSelectedRowsViaWheelScroll(grid, colPos, rowMap, targetSelectedRows) {
 
     // 先尽量滚到顶部（大量负方向 wheel 事件）
     for (let i = 0; i < MAX_WHEEL_SCROLL_TO_TOP_ITERATIONS; i++) {
@@ -588,22 +612,22 @@
         new WheelEvent('wheel', { deltaY: -VIRTUAL_SCROLL_WHEEL_DELTA, deltaMode: 0, bubbles: true, cancelable: true })
       );
     }
-    await pollForRowSignatureChange(getRenderedRowSignature());
-    collectVisibleSelectedRows(colPos, rowMap);
+    await pollForRowSignatureChange(getRenderedRowSignature(grid));
+    collectVisibleSelectedRows(grid, colPos, rowMap);
 
-    let lastSignature = getRenderedRowSignature();
+    let lastSignature = getRenderedRowSignature(grid);
     let stagnantRounds = 0;
     let totalWheelDown = 0;
 
-    while (stagnantRounds < MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS && rowMap.size < totalDataRows) {
+    while (stagnantRounds < MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS && rowMap.size < targetSelectedRows) {
       grid.dispatchEvent(
         new WheelEvent('wheel', { deltaY: VIRTUAL_SCROLL_WHEEL_DELTA, deltaMode: 0, bubbles: true, cancelable: true })
       );
       totalWheelDown += VIRTUAL_SCROLL_WHEEL_DELTA;
 
       const changed = await pollForRowSignatureChange(lastSignature);
-      const currentSignature = getRenderedRowSignature();
-      collectVisibleSelectedRows(colPos, rowMap);
+      const currentSignature = getRenderedRowSignature(grid);
+      collectVisibleSelectedRows(grid, colPos, rowMap);
 
       if (changed) {
         stagnantRounds = 0;
@@ -625,15 +649,31 @@
 
   async function collectSelectedRows(colPos) {
     const rowMap = new Map();
-    collectVisibleSelectedRows(colPos, rowMap);
 
     const grid = getVirtualGrid();
+    if (!grid) return [];
+
+    collectVisibleSelectedRows(grid, colPos, rowMap);
+
     const ariaRowCount = parseInt(grid ? grid.getAttribute('aria-rowcount') || '' : '', 10);
     const totalDataRows = Math.max(
       Number.isFinite(ariaRowCount) ? ariaRowCount - 1 : 0,
       0
     );
-    if (!grid || totalDataRows <= rowMap.size) {
+    const selectedRowCount = getSelectedRowCount();
+    const targetSelectedRows = Math.max(
+      0,
+      Math.min(
+        selectedRowCount === null ? totalDataRows : selectedRowCount,
+        totalDataRows || Number.MAX_SAFE_INTEGER
+      )
+    );
+
+    if (targetSelectedRows === 0) {
+      return [];
+    }
+
+    if (targetSelectedRows <= rowMap.size) {
       return Array.from(rowMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([, row]) => row);
@@ -642,7 +682,7 @@
     const scrollTarget = await findVirtualScrollTarget(grid);
     if (!scrollTarget) {
       // scrollTop 驱动方式失效（如 FixedDataTable 内部滚动），改用 WheelEvent 回退方案
-      await collectSelectedRowsViaWheelScroll(grid, colPos, rowMap);
+      await collectSelectedRowsViaWheelScroll(grid, colPos, rowMap, targetSelectedRows);
       return Array.from(rowMap.entries())
         .sort((a, b) => a[0] - b[0])
         .map(([, row]) => row);
@@ -650,8 +690,8 @@
 
     const originalTop = scrollTarget.scrollTop;
     scrollTarget.scrollTop = 0;
-    await pollForRowSignatureChange(getRenderedRowSignature());
-    collectVisibleSelectedRows(colPos, rowMap);
+    await pollForRowSignatureChange(getRenderedRowSignature(grid));
+    collectVisibleSelectedRows(grid, colPos, rowMap);
 
     const maxScrollTop = Math.max(
       (scrollTarget.scrollHeight || 0) - (scrollTarget.clientHeight || 0),
@@ -662,16 +702,16 @@
       MIN_VIRTUAL_SCROLL_STEP
     );
     let currentTop = 0;
-    let lastSignature = getRenderedRowSignature();
+    let lastSignature = getRenderedRowSignature(grid);
     let stagnantRounds = 0;
 
     while (currentTop < maxScrollTop) {
       currentTop = Math.min(currentTop + step, maxScrollTop);
       scrollTarget.scrollTop = currentTop;
       await pollForRowSignatureChange(lastSignature);
-      collectVisibleSelectedRows(colPos, rowMap);
+      collectVisibleSelectedRows(grid, colPos, rowMap);
 
-      const currentSignature = getRenderedRowSignature();
+      const currentSignature = getRenderedRowSignature(grid);
       if (currentSignature === lastSignature) {
         stagnantRounds += 1;
       } else {
@@ -679,9 +719,9 @@
         lastSignature = currentSignature;
       }
 
-      // rowMap.size >= totalDataRows 主要用于"当前页全部选中"的快速结束场景；
+      // rowMap.size >= targetSelectedRows 主要用于依据页面已选数量的快速结束场景；
       // 若仅部分勾选，仍会依赖 stagnation 检测继续遍历到末尾。
-      if (stagnantRounds >= MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS || rowMap.size >= totalDataRows) break;
+      if (stagnantRounds >= MAX_VIRTUAL_SCROLL_STAGNANT_ROUNDS || rowMap.size >= targetSelectedRows) break;
     }
 
     scrollTarget.scrollTop = originalTop;
