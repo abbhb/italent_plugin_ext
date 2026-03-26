@@ -38,8 +38,6 @@
 
   /** 插件 UI 元素的唯一标识前缀，防止与页面样式冲突 */
   const PREFIX = 'kq-calc';
-  const SELECTED_STATE_CLASS_PATTERN = /(?:^|__|--)(checked|selected)$/;
-
   // ─────────────────────────────────────────────
   // 样式注入
   // ─────────────────────────────────────────────
@@ -63,6 +61,27 @@
       .${PREFIX}-btn:hover .base-bg-ripple {
         background-color: #005fa8 !important;
         border-color: #005fa8 !important;
+      }
+      .${PREFIX}-btn.${PREFIX}-btn-loading {
+        cursor: wait;
+        pointer-events: none;
+      }
+      .${PREFIX}-btn.${PREFIX}-btn-loading .base-bg-ripple {
+        background-color: #4096ff !important;
+        border-color: #4096ff !important;
+      }
+      .${PREFIX}-btn.${PREFIX}-btn-loading .base-btn-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .${PREFIX}-btn-spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgba(255, 255, 255, 0.45);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: ${PREFIX}-spin 0.7s linear infinite;
       }
 
       /* ── 遮罩层 ── */
@@ -242,6 +261,9 @@
         70%  { opacity: 1; }
         100% { opacity: 0; }
       }
+      @keyframes ${PREFIX}-spin {
+        to { transform: rotate(360deg); }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -412,25 +434,11 @@
     return false;
   }
 
-  function hasSelectedClass(element) {
-    if (!element || typeof element.className !== 'string') return false;
-
-    return element.className
-      .split(/\s+/)
-      .some((className) => (
-        className === 'checked' ||
-        className === 'selected' ||
-        className === 'is-checked' ||
-        className === 'is-selected' ||
-        SELECTED_STATE_CLASS_PATTERN.test(className)
-      ));
-  }
-
-  function isCheckboxElement(element) {
+  function hasClass(element, className) {
     return !!(
       element &&
-      typeof element.className === 'string' &&
-      element.className.includes('checkbox')
+      element.classList &&
+      element.classList.contains(className)
     );
   }
 
@@ -443,20 +451,24 @@
     if (checkbox.checked) return true;
     if (checkbox.getAttribute('aria-checked') === 'true') return true;
     if (row.getAttribute('aria-selected') === 'true') return true;
-    if (checkbox.nextElementSibling && hasSelectedClass(checkbox.nextElementSibling)) return true;
+    if (hasClass(row, 'public_fixedDataTableRow_checked')) return true;
+    if (hasClass(row, 'public_fixedDataTableRow_selected')) return true;
 
-    for (let element = checkbox; element; element = element.parentElement) {
-      if (
-        element.getAttribute('aria-checked') === 'true' &&
-        isCheckboxElement(element)
-      ) {
-        return true;
-      }
-      if (hasSelectedClass(element)) return true;
-      if (element === row) return false;
-    }
+    const checkboxVisual = checkbox.parentElement
+      ? checkbox.parentElement.querySelector('.platform-checkbox__realInput')
+      : null;
+    if (hasClass(checkboxVisual, 'platform-checkbox__realInput--checked')) return true;
 
-    return false;
+    const checkboxWrapper = checkbox.closest('[aria-checked="true"]');
+    return !!checkboxWrapper && row.contains(checkboxWrapper);
+  }
+
+  function waitForNextPaint() {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(resolve);
+      });
+    });
   }
 
   function extractRowData(row, colPos) {
@@ -872,13 +884,35 @@
   // ─────────────────────────────────────────────
 
   /** 执行计算并展示弹窗 */
-  async function onCalcButtonClick() {
-    const stats = await calcStats();
-    if (!stats) {
-      showToast('请先勾选要统计的考勤记录（至少一行）');
-      return;
+  function setCalcButtonLoading(btn, loading) {
+    if (!btn) return;
+    const title = btn.querySelector('.base-btn-title');
+    btn.classList.toggle(`${PREFIX}-btn-loading`, loading);
+    btn.setAttribute('aria-busy', loading ? 'true' : 'false');
+    btn.setAttribute('title', loading ? '正在统计已勾选行的工时信息' : '统计已勾选行的工时信息');
+    if (!title) return;
+    title.innerHTML = loading
+      ? `<span class="${PREFIX}-btn-spinner" aria-hidden="true"></span><span>计算中...</span>`
+      : '📊 计算工时';
+  }
+
+  async function onCalcButtonClick(event) {
+    const btn = event && event.currentTarget;
+    if (btn && btn.classList.contains(`${PREFIX}-btn-loading`)) return;
+
+    setCalcButtonLoading(btn, true);
+    await waitForNextPaint();
+
+    try {
+      const stats = await calcStats();
+      if (!stats) {
+        showToast('请先勾选要统计的考勤记录（至少一行）');
+        return;
+      }
+      showModal(stats);
+    } finally {
+      setCalcButtonLoading(btn, false);
     }
-    showModal(stats);
   }
 
   /** 在 .button-list 中注入计算工时按钮 */
